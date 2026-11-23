@@ -1,0 +1,130 @@
+name: Test
+on:
+  pull_request:
+    branches:
+      - main
+  # Kopi's release pushes the generated formula here with a deploy key, which triggers this
+  # run: it checks that the published formula installs from the real release assets.
+  push:
+    branches:
+      - main
+permissions: {}
+jobs:
+  formula:
+    name: formula (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    permissions:
+      contents: read
+    steps:
+      # Checks out this repository as the tap and trusts it; no checkout step needed.
+      - name: Setup Homebrew
+        uses: Homebrew/actions/setup-homebrew@ceec4e8419bb3c97ce96e9dda7738499ed5f869d # 2026.11.14.1
+      - run: brew test-bot --only-cleanup-before
+      - run: brew test-bot --only-setup
+      - run: brew test-bot --only-tap-syntax
+      # Not test-bot --only-formulae: it tests only formulae changed against the base, so a
+      # push tests none, and it builds bottles, which a prebuilt-binary formula has none of.
+      - name: Install, test and audit the formulae
+        run: |
+          set -euo pipefail
+          # There is no Formula directory before Kopi's first release.
+          shopt -s nullglob
+          for file in Formula/*.rb; do
+            formula="keyute/tap/$(basename "$file" .rb)"
+            brew install "$formula"
+            brew test "$formula"
+            brew audit --strict "$formula"
+          done
+  ci:
+    if: always()
+    needs: [formula]
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+  dependabot-automerge:
+    needs: ci
+    # !cancelled() plus the explicit result: without a status function the job is skipped
+    # whenever any job upstream of ci was skipped.
+    # Actor and PR author: only Dependabot's own pushes, never someone else's commit on its
+    # branch; decide() checks the actor and action again.
+    if: ${{ !cancelled() && needs.ci.result == 'success' && github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }} # zizmor: ignore[bot-conditions]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    # The job must never check out or execute the PR's code.
+    # There is no merge queue on a user-owned repo, so this merges directly after ci.
+    # A GITHUB_TOKEN merge triggers no push run, which is fine: the pull request run already tested the change.
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        # Fails (rather than emitting no updates) when the PR's first commit is not Dependabot's
+        # or nothing parses; the empty outputs then send the PR down the manual path.
+        continue-on-error: true
+      - name: Merge or flag for review
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          GROUP: ${{ steps.metadata.outputs.dependency-group }}
+          UPDATES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+          ACTOR: ${{ github.actor }}
+          EVENT_ACTION: ${{ github.event.action }}
+        with:
+          script: |
+            // Returns why the PR needs a human, or null when it may merge. Fails closed.
+            function decide(group, updates, actor, action) {
+              const tail = (v) => (v || '').replace(/^v?\d+(\.\d+)*/, '');
+              // Commit author fields are forgeable, so the trustworthy signal is that Dependabot
+              // itself pushed the payload head SHA. github.actor is the pusher and survives re-runs.
+              if ((action !== 'opened' && action !== 'synchronize') || actor !== 'dependabot[bot]') {
+                return `triggered by ${actor} (${action}), not a Dependabot push`;
+              }
+              if (group !== 'auto' && group !== 'security') return `group "${group || 'none'}" is not auto-merged`;
+              if (updates.length === 0) return 'no Dependabot metadata';
+              for (const u of updates) {
+                const type = u.updateType;
+                let why = null;
+                if (type !== 'version-update:semver-minor' && type !== 'version-update:semver-patch') {
+                  if (!type) why = 'unclassified update';
+                  else if (type === 'version-update:semver-major') why = 'major update';
+                  else why = `unsupported update type ${type}`;
+                } else if (group === 'security' && type !== 'version-update:semver-patch') why = 'security update above patch level';
+                // Only the numeric part may move: what follows it is an image variant, rebuild counter,
+                // pre-release label or pseudo-version hash, and a change there is a different artifact,
+                // not a newer release. prevVersion can be empty.
+                else if (!/^v?\d/.test(u.newVersion || '') || tail(u.prevVersion) !== tail(u.newVersion)) why = 'version format changed';
+                if (why) return `${u.dependencyName} ${u.prevVersion} -> ${u.newVersion}: ${why}`;
+              }
+              return null;
+            }
+
+            const pr = context.payload.pull_request;
+            // Everything is pinned to the SHA Dependabot pushed; a later push starts a newer run,
+            // which owns the PR from then on.
+            const head = pr.head.sha;
+            const isCurrent = async () => {
+              const { data } = await github.rest.pulls.get({ ...context.repo, pull_number: pr.number });
+              return data.state === 'open' && data.head.sha === head;
+            };
+            let reason = decide(process.env.GROUP, JSON.parse(process.env.UPDATES || '[]'), process.env.ACTOR, process.env.EVENT_ACTION);
+
+            if (reason === null) {
+              if (!(await isCurrent())) return core.notice('Head moved or PR closed; nothing to do');
+              try {
+                await github.rest.pulls.merge({ ...context.repo, pull_number: pr.number, merge_method: 'squash', sha: head });
+              } catch (e) {
+                reason = `merge of ${head} failed: ${e.message}`;
+              }
+              if (reason === null) {
+                // GitHub's "Automatically delete head branches" skips merges made with GITHUB_TOKEN.
+                await github.rest.git.deleteRef({ ...context.repo, ref: `heads/${pr.head.ref}` });
+                return core.notice(`${head} merged`);
+              }
+            }
+
+            core.notice(`Manual review needed: ${reason}`);

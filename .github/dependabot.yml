@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs; this is what keeps them current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Singapore
+    cooldown:
+      default-days: 7
+    # Group names are a contract with the dependabot-automerge job in test.yml: "auto" and
+    # patch-level "security" PRs merge on green ci, "review" waits for a maintainer.
+    groups:
+      auto:
+        patterns:
+          - "*"
+        # lint.yml skips Dependabot PRs, so CI never exercises a MegaLinter bump (auto and security)
+        exclude-patterns:
+          - "oxsecurity/megalinter*"
+        update-types:
+          - minor
+          - patch
+      review:
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "oxsecurity/megalinter*"

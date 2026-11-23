@@ -1,0 +1,52 @@
+name: Lint
+on:
+  pull_request:
+    branches:
+      - main
+permissions: {}
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    # triggering_actor, not github.actor or the PR author: both of those stay
+    # dependabot[bot] through a re-run (a re-run keeps the original actor's
+    # privileges), so neither ever lints a Dependabot PR. triggering_actor is whoever
+    # pressed re-run, so Dependabot's own run skips and a maintainer can re-run to
+    # verify the bump. The re-run still carries the original Dependabot-restricted
+    # token, so findings reach the job summary but the PR comment may not post.
+    if: github.triggering_actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run MegaLinter
+        uses: oxsecurity/megalinter/flavors/documentation@f2fe8c1cba37091848df3e524066c8c23ef353ed # v10.2.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Allowlist, not descriptors: descriptors gain linters across majors and auto-enable.
+          # Must stay on one line with no spaces after the commas: MegaLinter
+          # splits on "," without stripping, so " YAML_YAMLLINT" matches no
+          # linter and is silently dropped.
+          ENABLE_LINTERS: ACTION_ACTIONLINT,ACTION_ZIZMOR,YAML_YAMLLINT,MARKDOWN_RUMDL,REPOSITORY_BETTERLEAKS
+          # Without this, MegaLinter deactivates MARKDOWN_RUMDL in favour of
+          # markdownlint even when it is the only MARKDOWN linter enabled.
+          # Config: .rumdl.toml.
+          MARKDOWN_DEFAULT_STYLE: rumdl
+          # MegaLinter classes rumdl as a formatter and defaults its findings to
+          # non-blocking; this makes them fail the gate.
+          MARKDOWN_RUMDL_DISABLE_ERRORS: false
+          # One failed online audit aborts the whole zizmor run; --offline
+          # forces offline despite GITHUB_TOKEN being set, keeping the static audits.
+          ACTION_ZIZMOR_ARGUMENTS: --offline
+          VALIDATE_ALL_CODEBASE: false
+          DEFAULT_BRANCH: ${{ github.base_ref }}
+          # The config defaults to a dotfile name; point it at the visible one so
+          # .github/linters holds no hidden files.
+          YAML_YAMLLINT_CONFIG_FILE: yamllint.yml
