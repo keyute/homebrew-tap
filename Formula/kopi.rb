@@ -7,21 +7,21 @@ class Kopi < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/keyute/kopi/releases/download/v0.3.0/kopi_0.3.0_darwin_arm64.tar.gz"
-      sha256 "c2a6c1d6bb99f92a8094925fb9be19d5125c6e121503f92de81542eef3487bc1"
+      url "https://github.com/keyute/kopi/releases/download/v0.3.1/kopi_0.3.1_darwin_arm64.tar.gz"
+      sha256 "aadab627b1d1486f0864c7473aabf2e2efc785aea7f1f3abe81282537e1849b2"
     else
-      url "https://github.com/keyute/kopi/releases/download/v0.3.0/kopi_0.3.0_darwin_amd64.tar.gz"
-      sha256 "e75fcf7307d5e688d0a84cfb5e301f8ce501d1a38fa41ad55fe05ddcff641900"
+      url "https://github.com/keyute/kopi/releases/download/v0.3.1/kopi_0.3.1_darwin_amd64.tar.gz"
+      sha256 "122eb1f743b6d50f252ab902e1794c6d15d2f905ae87a83a4f121ca1501082cd"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/keyute/kopi/releases/download/v0.3.0/kopi_0.3.0_linux_arm64.tar.gz"
-      sha256 "c664759ffae198ed9b0743fa291e832d1b2ef393e4732a3911c61d2ef0924697"
+      url "https://github.com/keyute/kopi/releases/download/v0.3.1/kopi_0.3.1_linux_arm64.tar.gz"
+      sha256 "b3002e9804a91229bf1dba76ce856139aad88cb4c0680ba46234e2d7f2c4b5df"
     else
-      url "https://github.com/keyute/kopi/releases/download/v0.3.0/kopi_0.3.0_linux_amd64.tar.gz"
-      sha256 "2b38e25d5ef7d454d7c8df9655a09bd6714e9411e963045e4817d0161fdc79fa"
+      url "https://github.com/keyute/kopi/releases/download/v0.3.1/kopi_0.3.1_linux_amd64.tar.gz"
+      sha256 "9f5f1cb2c5e7aa306058bcd09460aa282f0b2ef3905f56441a190128f0396660"
     end
   end
 
